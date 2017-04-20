@@ -3,7 +3,6 @@ package token
 
 import (
 	"errors"
-	"net/url"
 
 	stripe "github.com/getbread/stripe-go"
 )
@@ -11,6 +10,7 @@ import (
 const (
 	Card stripe.TokenType = "card"
 	Bank stripe.TokenType = "bank_account"
+	PII  stripe.TokenType = "pii"
 )
 
 // Client is used to invoke /tokens APIs.
@@ -26,7 +26,7 @@ func New(params *stripe.TokenParams) (*stripe.Token, error) {
 }
 
 func (c Client) New(params *stripe.TokenParams) (*stripe.Token, error) {
-	body := &url.Values{}
+	body := &stripe.RequestValues{}
 	token := c.Key
 
 	if len(params.Customer) > 0 {
@@ -37,8 +37,10 @@ func (c Client) New(params *stripe.TokenParams) (*stripe.Token, error) {
 		params.Card.AppendDetails(body, true)
 	} else if params.Bank != nil {
 		params.Bank.AppendDetails(body)
+	} else if params.PII != nil {
+		params.PII.AppendDetails(body)
 	} else if len(params.Customer) == 0 {
-		err := errors.New("Invalid Token params: either Card or Bank need to be set")
+		err := errors.New("Invalid Token params: either Card, Bank, or PII need to be set")
 		return nil, err
 	}
 
@@ -61,12 +63,12 @@ func Get(id string, params *stripe.TokenParams) (*stripe.Token, error) {
 }
 
 func (c Client) Get(id string, params *stripe.TokenParams) (*stripe.Token, error) {
-	var body *url.Values
+	var body *stripe.RequestValues
 	var commonParams *stripe.Params
 
 	if params != nil {
 		commonParams = &params.Params
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 		params.AppendTo(body)
 	}
 

@@ -10,6 +10,8 @@ type InvoiceItemParams struct {
 	Amount             int64
 	Currency           Currency
 	Invoice, Desc, Sub string
+	Discountable       bool
+	NoDiscountable     bool
 }
 
 // InvoiceItemListParams is the set of parameters that can be used when listing invoice items.
@@ -23,17 +25,28 @@ type InvoiceItemListParams struct {
 // InvoiceItem is the resource represneting a Stripe invoice item.
 // For more details see https://stripe.com/docs/api#invoiceitems.
 type InvoiceItem struct {
-	ID        string            `json:"id"`
-	Live      bool              `json:"livemode"`
-	Amount    int64             `json:"amount"`
-	Currency  Currency          `json:"currency"`
-	Customer  *Customer         `json:"customer"`
-	Date      int64             `json:"date"`
-	Proration bool              `json:"proration"`
-	Desc      string            `json:"description"`
-	Invoice   *Invoice          `json:"invoice"`
-	Meta      map[string]string `json:"metadata"`
-	Sub       string            `json:"subscription"`
+	ID           string            `json:"id"`
+	Live         bool              `json:"livemode"`
+	Amount       int64             `json:"amount"`
+	Currency     Currency          `json:"currency"`
+	Customer     *Customer         `json:"customer"`
+	Date         int64             `json:"date"`
+	Period       *Period           `json:"period"`
+	Plan         *Plan             `json:"plan"`
+	Proration    bool              `json:"proration"`
+	Desc         string            `json:"description"`
+	Invoice      *Invoice          `json:"invoice"`
+	Meta         map[string]string `json:"metadata"`
+	Sub          string            `json:"subscription"`
+	Discountable bool              `json:"discountable"`
+	Deleted      bool              `json:"deleted"`
+	Quantity     int64             `json:"quantity"`
+}
+
+// InvoiceItemList is a list of invoice items as retrieved from a list endpoint.
+type InvoiceItemList struct {
+	ListMeta
+	Values []*InvoiceItem `json:"data"`
 }
 
 // UnmarshalJSON handles deserialization of an InvoiceItem.

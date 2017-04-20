@@ -36,4 +36,11 @@ type Plan struct {
 	Meta          map[string]string `json:"metadata"`
 	TrialPeriod   uint64            `json:"trial_period_days"`
 	Statement     string            `json:"statement_descriptor"`
+	Deleted       bool              `json:"deleted"`
+}
+
+// PlanList is a list of plans as returned from a list endpoint.
+type PlanList struct {
+	ListMeta
+	Values []*Plan `json:"data"`
 }

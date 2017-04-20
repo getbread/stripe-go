@@ -4,7 +4,6 @@ package fileupload
 import (
 	"bytes"
 	"fmt"
-	"net/url"
 
 	stripe "github.com/getbread/stripe-go"
 )
@@ -51,13 +50,13 @@ func Get(id string, params *stripe.FileUploadParams) (*stripe.FileUpload, error)
 }
 
 func (c Client) Get(id string, params *stripe.FileUploadParams) (*stripe.FileUpload, error) {
-	var body *url.Values
+	var body *stripe.RequestValues
 	var commonParams *stripe.Params
 
 	if params != nil {
 		commonParams = &params.Params
 
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 		params.AppendTo(body)
 	}
 
@@ -74,16 +73,12 @@ func List(params *stripe.FileUploadListParams) *Iter {
 }
 
 func (c Client) List(params *stripe.FileUploadListParams) *Iter {
-	type fileUploadList struct {
-		stripe.ListMeta
-		Values []*stripe.FileUpload `json:"data"`
-	}
-
-	var body *url.Values
+	var body *stripe.RequestValues
 	var lp *stripe.ListParams
+	var p *stripe.Params
 
 	if params != nil {
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 
 		if len(params.Purpose) > 0 {
 			body.Add("purpose", string(params.Purpose))
@@ -91,11 +86,12 @@ func (c Client) List(params *stripe.FileUploadListParams) *Iter {
 
 		params.AppendTo(body)
 		lp = &params.ListParams
+		p = params.ToParams()
 	}
 
-	return &Iter{stripe.GetIter(lp, body, func(b url.Values) ([]interface{}, stripe.ListMeta, error) {
-		list := &fileUploadList{}
-		err := c.B.Call("GET", "/files", c.Key, &b, nil, list)
+	return &Iter{stripe.GetIter(lp, body, func(b *stripe.RequestValues) ([]interface{}, stripe.ListMeta, error) {
+		list := &stripe.FileUploadList{}
+		err := c.B.Call("GET", "/files", c.Key, b, p, list)
 
 		ret := make([]interface{}, len(list.Values))
 		for i, v := range list.Values {

@@ -2,7 +2,6 @@ package stripe
 
 import (
 	"encoding/json"
-	"net/url"
 )
 
 // DisputeReason is the list of allowed values for a discount's reason.
@@ -12,7 +11,7 @@ import (
 type DisputeReason string
 
 // DisputeStatus is the list of allowed values for a discount's status.
-// Allowed values are "won", "lost", "needs_ressponse", "under_review",
+// Allowed values are "won", "lost", "needs_response", "under_review",
 // "warning_needs_response", "warning_under_review", "charge_refunded",
 // "warning_closed".
 type DisputeStatus string
@@ -27,19 +26,55 @@ type DisputeParams struct {
 // DisputeEvidenceParams is the set of parameters that can be used when submitting
 // evidence for disputes.
 type DisputeEvidenceParams struct {
-	ProductDesc, CustomerName, CustomerEmail, CustomerIP, CustomerSig, BillingAddress, Receipt string
-	ShippingAddress, ShippingDate, ShippingTracking, ShippingDoc                               string
-	RefundPolicy, RefundPolicyDisclosure, RefundRefusalReason                                  string
-	CancellationPolicy, CancellationPolicyDisclsoure, CancellationRebuttal                     string
-	ActivityLog                                                                                string
-	ServiceDate, ServiceDoc                                                                    string
-	DuplicateCharge, DuplicateChargeReason, DuplicateChargeDoc                                 string
-	CustomerComm, UncategorizedText, UncategorizedFile                                         string
+	ActivityLog string
+
+	BillingAddress string
+
+	CancellationPolicy           string
+	CancellationPolicyDisclsoure string
+	CancellationRebuttal         string
+
+	CustomerName  string
+	CustomerEmail string
+	CustomerIP    string
+	CustomerSig   string
+	CustomerComm  string
+
+	DuplicateCharge       string
+	DuplicateChargeReason string
+	DuplicateChargeDoc    string
+
+	ProductDesc string
+
+	Receipt string
+
+	RefundPolicy           string
+	RefundPolicyDisclosure string
+	RefundRefusalReason    string
+
+	ServiceDate string
+	ServiceDoc  string
+
+	ShippingAddress  string
+	ShippingDate     string
+	ShippingTracking string
+	ShippingDoc      string
+
+	UncategorizedText string
+	UncategorizedFile string
+}
+
+// DisputeListParams is the set of parameters that can be used when listing disputes.
+// For more details see https://stripe.com/docs/api#list_disputes.
+type DisputeListParams struct {
+	ListParams
+	Created int64
 }
 
 // Dispute is the resource representing a Stripe dispute.
 // For more details see https://stripe.com/docs/api#disputes.
 type Dispute struct {
+	ID              string            `json:"id"`
 	Live            bool              `json:"livemode"`
 	Amount          uint64            `json:"amount"`
 	Currency        Currency          `json:"currency"`
@@ -54,11 +89,19 @@ type Dispute struct {
 	Meta            map[string]string `json:"metadata"`
 }
 
+// DisputeList is a list of disputes as retrieved from a list endpoint.
+type DisputeList struct {
+	ListMeta
+	Values []*Dispute `json:"data"`
+}
+
 // EvidenceDetails is the structure representing more details about
 // the dispute.
 type EvidenceDetails struct {
-	DueDate int64 `json:"due_by"`
-	Count   int   `json:"submission_count"`
+	Count       int   `json:"submission_count"`
+	DueDate     int64 `json:"due_by"`
+	HasEvidence bool  `json:"has_evidence"`
+	PastDue     bool  `json:"past_due"`
 }
 
 // DisputeEvidence is the structure that contains various details about
@@ -76,6 +119,7 @@ type DisputeEvidence struct {
 	ShippingAddress              string `json:"shipping_address"`
 	ShippingDate                 string `json:"shipping_date"`
 	ShippingTracking             string `json:"shipping_tracking_number"`
+	ShippingCarrier              string `json:"shipping_carrier"`
 	ShippingDoc                  *File  `json:"shipping_documentation"`
 	RefundPolicy                 *File  `json:"refund_policy"`
 	RefundPolicyDisclosure       string `json:"refund_policy_disclosure"`
@@ -105,7 +149,7 @@ type File struct {
 }
 
 // AppendDetails adds the dispute evidence details to the query string values.
-func (e *DisputeEvidenceParams) AppendDetails(values *url.Values) {
+func (e *DisputeEvidenceParams) AppendDetails(values *RequestValues) {
 	if len(e.ProductDesc) > 0 {
 		values.Add("evidence[product_description]", e.ProductDesc)
 	}
@@ -209,6 +253,23 @@ func (e *DisputeEvidenceParams) AppendDetails(values *url.Values) {
 	if len(e.UncategorizedFile) > 0 {
 		values.Add("evidence[uncategorized_file]", e.UncategorizedFile)
 	}
+}
+
+// UnmarshalJSON handles deserialization of a Dispute.
+// This custom unmarshaling is needed because the resulting
+// property may be an id or the full struct if it was expanded.
+func (t *Dispute) UnmarshalJSON(data []byte) error {
+	type dispute Dispute
+	var dd dispute
+	err := json.Unmarshal(data, &dd)
+	if err == nil {
+		*t = Dispute(dd)
+	} else {
+		// the id is surrounded by "\" characters, so strip them
+		t.ID = string(data[1 : len(data)-1])
+	}
+
+	return nil
 }
 
 // UnmarshalJSON handles deserialization of a File.

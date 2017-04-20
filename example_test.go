@@ -40,11 +40,16 @@ func ExampleCharge_get() {
 
 	params := &stripe.ChargeParams{}
 	params.Expand("customer")
+	params.Expand("application")
 	params.Expand("balance_transaction")
 
 	ch, err := charge.Get("ch_example_id", params)
 
 	if err != nil {
+		log.Fatal(err)
+	}
+
+	if ch.Application != nil {
 		log.Fatal(err)
 	}
 
@@ -70,10 +75,14 @@ func ExampleInvoice_update() {
 func ExampleCustomer_delete() {
 	stripe.Key = "sk_key"
 
-	err := customer.Del("acct_example_id")
+	customerDel, err := customer.Del("cus_example_id")
 
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	if !customerDel.Deleted {
+		log.Fatal("Customer doesn't appear deleted while it should be")
 	}
 }
 

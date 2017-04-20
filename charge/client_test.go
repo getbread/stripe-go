@@ -2,14 +2,16 @@ package charge
 
 import (
 	"testing"
+	"time"
 
-	stripe "github.com/getbread/stripe-go"
-	"github.com/getbread/stripe-go/bitcoinreceiver"
-	"github.com/getbread/stripe-go/currency"
-	"github.com/getbread/stripe-go/customer"
-	"github.com/getbread/stripe-go/refund"
-	"github.com/getbread/stripe-go/token"
-	. "github.com/getbread/stripe-go/utils"
+	stripe "github.com/stripe/stripe-go"
+	"github.com/stripe/stripe-go/bitcoinreceiver"
+	"github.com/stripe/stripe-go/currency"
+	"github.com/stripe/stripe-go/customer"
+	"github.com/stripe/stripe-go/refund"
+	"github.com/stripe/stripe-go/source"
+	"github.com/stripe/stripe-go/token"
+	. "github.com/stripe/stripe-go/utils"
 )
 
 func init() {
@@ -22,6 +24,16 @@ func TestChargeNew(t *testing.T) {
 		Currency:  currency.USD,
 		Statement: "statement",
 		Email:     "a@b.com",
+		Shipping: &stripe.ShippingDetails{
+			Name: "Shipping Name",
+			Address: stripe.Address{
+				Line1: "One Street",
+				Line2: "Apt 1",
+				City:  "Somewhere",
+				State: "SW",
+				Zip:   "10044",
+			},
+		},
 	}
 	chargeParams.SetSource(&stripe.CardParams{
 		Name:   "Stripe Tester",
@@ -54,6 +66,22 @@ func TestChargeNew(t *testing.T) {
 
 	if target.Email != chargeParams.Email {
 		t.Errorf("Email %q does not match expected email %v\n", target.Email, chargeParams.Email)
+	}
+
+	if target.Shipping.Name != chargeParams.Shipping.Name {
+		t.Errorf("Shipping name %q does not match expected name %v\n", target.Shipping.Name, chargeParams.Shipping.Name)
+	}
+	if target.Shipping.Address.Line2 != chargeParams.Shipping.Address.Line2 {
+		t.Errorf("Shipping address line 2 %q does not match expected address line 2 %v\n", target.Shipping.Address.Line2, chargeParams.Shipping.Address.Line2)
+	}
+	if target.Shipping.Address.City != chargeParams.Shipping.Address.City {
+		t.Errorf("Shipping address city %q does not match expected address city %v\n", target.Shipping.Address.City, chargeParams.Shipping.Address.City)
+	}
+	if target.Shipping.Address.State != chargeParams.Shipping.Address.State {
+		t.Errorf("Shipping address state %q does not match expected address state %v\n", target.Shipping.Address.State, chargeParams.Shipping.Address.State)
+	}
+	if target.Shipping.Address.Zip != chargeParams.Shipping.Address.Zip {
+		t.Errorf("Shipping address zip %q does not match expected address zip %v\n", target.Shipping.Address.Zip, chargeParams.Shipping.Address.Zip)
 	}
 }
 
@@ -265,8 +293,9 @@ func TestChargeCapture(t *testing.T) {
 
 	// partial capture
 	capture := &stripe.CaptureParams{
-		Amount: 554,
-		Email:  "a@b.com",
+		Amount:    554,
+		Email:     "a@b.com",
+		Statement: "DEMO *0001",
 	}
 
 	target, err = Capture(res.ID, capture)
@@ -290,7 +319,6 @@ func TestChargeCapture(t *testing.T) {
 
 func TestChargeList(t *testing.T) {
 	params := &stripe.ChargeListParams{}
-	params.Filters.AddFilter("include[]", "", "total_count")
 	params.Filters.AddFilter("limit", "", "5")
 	params.Single = true
 
@@ -436,5 +464,243 @@ func TestChargeSourceForBitcoinReceiver(t *testing.T) {
 
 	if rreceiver.Display() != "Filled bitcoin receiver (1000/1000 usd)" {
 		t.Error("Display value did not match expectation")
+	}
+}
+
+func TestChargeOutcome(t *testing.T) {
+	chargeParams := &stripe.ChargeParams{
+		Amount:    1000,
+		Currency:  currency.USD,
+		Statement: "statement",
+		Email:     "a@b.com",
+	}
+	chargeParams.SetSource(&stripe.CardParams{
+		Name:   "Stripe Tester",
+		Number: "4100000000000019",
+		Month:  "06",
+		Year:   "20",
+	})
+
+	_, err := New(chargeParams)
+
+	// We expect an error for the shielded test card, we will grab the ChargeID
+	// from the *stripe.Error and assert the charge's outcome from the result of Get
+	if err == nil {
+		t.Error("The shielded test card did not return an error for charge creation")
+	}
+
+	stripeErr := err.(*stripe.Error)
+	cid := stripeErr.ChargeID
+
+	target, err := Get(cid, nil)
+	if err != nil {
+		t.Error(err)
+	}
+
+	o := target.Outcome
+	if o.NetworkStatus != "not_sent_to_network" {
+		t.Error("The charge outcome's network status is not `not_sent_to_network`")
+	}
+
+	if o.Reason != "highest_risk_level" {
+		t.Error("The charge outcome's reason is not `highest_risk_level`")
+	}
+
+	if o.RiskLevel != "highest" {
+		t.Error("The charge outcome's risk level is not `highest`")
+	}
+
+	if o.SellerMessage == "" {
+		t.Error("The charge outcome's seller message is not defined")
+	}
+
+	if o.Type != "blocked" {
+		t.Error("The charge outcome's type is not `blocked`")
+	}
+}
+
+func newDisputedCharge() (*stripe.Charge, error) {
+	chargeParams := &stripe.ChargeParams{
+		Amount:   1001,
+		Currency: currency.USD,
+	}
+
+	chargeParams.SetSource(&stripe.CardParams{
+		Number: "4000000000000259",
+		Month:  "06",
+		Year:   "20",
+	})
+
+	res, err := New(chargeParams)
+	if err != nil {
+		return nil, err
+	}
+
+	target, err := Get(res.ID, nil)
+
+	if err != nil {
+		return target, err
+	}
+
+	for target.Dispute == nil {
+		time.Sleep(time.Second * 10)
+		target, err = Get(res.ID, nil)
+		if err != nil {
+			return target, err
+		}
+	}
+	return target, err
+}
+
+// Use one large test here to avoid needing to create multiple disputed charges
+func TestUpdateDispute(t *testing.T) {
+	ch, err := newDisputedCharge()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	disputeParams := &stripe.DisputeParams{
+		Evidence: &stripe.DisputeEvidenceParams{
+			ProductDesc: "original description",
+		},
+	}
+
+	dp, err := UpdateDispute(ch.ID, disputeParams)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if dp.Evidence.ProductDesc != disputeParams.Evidence.ProductDesc {
+		t.Errorf("Original description %q does not match expected description %q\n",
+			dp.Evidence.ProductDesc, disputeParams.Evidence.ProductDesc)
+	}
+}
+
+func TestCheckClose(t *testing.T) {
+	ch, err := newDisputedCharge()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dp, err := CloseDispute(ch.ID)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if dp.Status != "lost" {
+		t.Errorf("Dispute status %q does not match expected status lost\n", dp.Status)
+	}
+}
+
+func TestChargeSourceForSourceObject(t *testing.T) {
+	sourceParams := &stripe.SourceObjectParams{
+		Type:     "bitcoin",
+		Amount:   1000,
+		Currency: currency.USD,
+		Owner: &stripe.SourceOwnerParams{
+			Email: "do+fill_now@stripe.com",
+		},
+	}
+
+	s, err := source.New(sourceParams)
+	if err != nil {
+		t.Fatalf("%+v", err)
+	}
+
+	chargeParams := &stripe.ChargeParams{
+		Amount:   1000,
+		Currency: currency.USD,
+	}
+
+	chargeParams.SetSource(s.ID)
+
+	ch, _ := New(chargeParams)
+
+	if len(ch.ID) == 0 {
+		t.Error("ID is nil for Charge")
+	}
+
+	if ch.Source == nil {
+		t.Error("Source is nil for Charge, should be Source property")
+	}
+
+	if ch.Source.Type != stripe.PaymentSourceObject {
+		t.Error("Source Type for Charge created by Source should be `source`")
+	}
+
+	source := ch.Source.SourceObject
+
+	if len(source.ID) == 0 {
+		t.Error("Source ID is nil for Charge `source` SourceObject property")
+	}
+
+	if source.Amount == 0 {
+		t.Error("Amount is empty for Charge `source` SourceObject property")
+	}
+
+	if source.Display() != "Consumed bitcoin source (1000 usd)" {
+		t.Error("Display value did not match expectation")
+	}
+}
+
+func TestChargeReviewID(t *testing.T) {
+	chargeParams := &stripe.ChargeParams{
+		Amount:   1000,
+		Currency: currency.USD,
+	}
+
+	chargeParams.SetSource(&stripe.CardParams{
+		Number: "4000000000009235",
+		Month:  "06",
+		Year:   "20",
+	})
+
+	res, err := New(chargeParams)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if res.Review == nil {
+		t.Error("There should be a review on the charge")
+	}
+
+	if res.Review.ID == "" {
+		t.Error("There should be a review ID on the charge")
+	}
+}
+
+func TestChargeReviewExpansion(t *testing.T) {
+	chargeParams := &stripe.ChargeParams{
+		Amount:   1000,
+		Currency: currency.USD,
+	}
+
+	chargeParams.SetSource(&stripe.CardParams{
+		Number: "4000000000009235",
+		Month:  "06",
+		Year:   "20",
+	})
+
+	chargeParams.Expand("review")
+
+	res, err := New(chargeParams)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if res.Review == nil {
+		t.Error("There should be a review on the charge")
+	}
+
+	if res.Review.ID == "" {
+		t.Error("There should be a review ID on the charge")
+	}
+
+	if !res.Review.Open {
+		t.Error("The review should be open")
+	}
+
+	if res.Review.Live {
+		t.Error("The review should be in test-mode")
 	}
 }

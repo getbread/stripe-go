@@ -3,7 +3,6 @@ package refund
 
 import (
 	"fmt"
-	"net/url"
 	"strconv"
 
 	stripe "github.com/getbread/stripe-go"
@@ -28,7 +27,7 @@ func New(params *stripe.RefundParams) (*stripe.Refund, error) {
 }
 
 func (c Client) New(params *stripe.RefundParams) (*stripe.Refund, error) {
-	body := &url.Values{}
+	body := &stripe.RequestValues{}
 
 	if params.Amount > 0 {
 		body.Add("amount", strconv.FormatUint(params.Amount, 10))
@@ -46,10 +45,14 @@ func (c Client) New(params *stripe.RefundParams) (*stripe.Refund, error) {
 		body.Add("reason", string(params.Reason))
 	}
 
+	if len(params.Charge) > 0 {
+		body.Add("charge", string(params.Charge))
+	}
+
 	params.AppendTo(body)
 
 	refund := &stripe.Refund{}
-	err := c.B.Call("POST", fmt.Sprintf("/charges/%v/refunds", params.Charge), c.Key, body, &params.Params, refund)
+	err := c.B.Call("POST", fmt.Sprintf("/refunds"), c.Key, body, &params.Params, refund)
 
 	return refund, err
 }
@@ -61,15 +64,17 @@ func Get(id string, params *stripe.RefundParams) (*stripe.Refund, error) {
 }
 
 func (c Client) Get(id string, params *stripe.RefundParams) (*stripe.Refund, error) {
-	if params == nil {
-		return nil, fmt.Errorf("params cannot be nil, and params.Charge must be set")
+	var body *stripe.RequestValues
+	var commonParams *stripe.Params
+
+	if params != nil {
+		commonParams = &params.Params
+		body = &stripe.RequestValues{}
+		params.AppendTo(body)
 	}
 
-	body := &url.Values{}
-	params.AppendTo(body)
-
 	refund := &stripe.Refund{}
-	err := c.B.Call("GET", fmt.Sprintf("/charges/%v/refunds/%v", params.Charge, id), c.Key, body, &params.Params, refund)
+	err := c.B.Call("GET", "/refunds/"+id, c.Key, body, commonParams, refund)
 
 	return refund, err
 }
@@ -81,12 +86,12 @@ func Update(id string, params *stripe.RefundParams) (*stripe.Refund, error) {
 }
 
 func (c Client) Update(id string, params *stripe.RefundParams) (*stripe.Refund, error) {
-	body := &url.Values{}
+	body := &stripe.RequestValues{}
 
 	params.AppendTo(body)
 
 	refund := &stripe.Refund{}
-	err := c.B.Call("POST", fmt.Sprintf("/charges/%v/refunds/%v", params.Charge, id), c.Key, body, &params.Params, refund)
+	err := c.B.Call("POST", fmt.Sprintf("/refunds/%v", id), c.Key, body, &params.Params, refund)
 
 	return refund, err
 }
@@ -98,15 +103,17 @@ func List(params *stripe.RefundListParams) *Iter {
 }
 
 func (c Client) List(params *stripe.RefundListParams) *Iter {
-	body := &url.Values{}
+	body := &stripe.RequestValues{}
 	var lp *stripe.ListParams
+	var p *stripe.Params
 
 	params.AppendTo(body)
 	lp = &params.ListParams
+	p = params.ToParams()
 
-	return &Iter{stripe.GetIter(lp, body, func(b url.Values) ([]interface{}, stripe.ListMeta, error) {
+	return &Iter{stripe.GetIter(lp, body, func(b *stripe.RequestValues) ([]interface{}, stripe.ListMeta, error) {
 		list := &stripe.RefundList{}
-		err := c.B.Call("GET", fmt.Sprintf("/charges/%v/refunds", params.Charge), c.Key, &b, nil, list)
+		err := c.B.Call("GET", fmt.Sprintf("/refunds"), c.Key, b, p, list)
 
 		ret := make([]interface{}, len(list.Values))
 		for i, v := range list.Values {

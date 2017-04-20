@@ -2,9 +2,7 @@ package stripe
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net/url"
 )
 
 // SourceParams is a union struct used to describe an
@@ -17,7 +15,7 @@ type SourceParams struct {
 // AppendDetails adds the source's details to the query string values.
 // For cards: when creating a new one, the parameters are passed as a dictionary, but
 // on updates they are simply the parameter name.
-func (sp *SourceParams) AppendDetails(values *url.Values, creating bool) {
+func (sp *SourceParams) AppendDetails(values *RequestValues, creating bool) {
 	if len(sp.Token) > 0 {
 		values.Add("source", sp.Token)
 	} else if sp.Card != nil {
@@ -32,6 +30,14 @@ type CustomerSourceParams struct {
 	Params
 	Customer string
 	Source   *SourceParams
+}
+
+// SourceVerifyParams are used to verify a customer source
+// For more details see https://stripe.com/docs/guides/ach-beta
+type SourceVerifyParams struct {
+	Params
+	Customer string
+	Amounts  [2]uint8
 }
 
 // SetSource adds valid sources to a CustomerSourceParams object,
@@ -61,7 +67,7 @@ func SourceParamsFor(obj interface{}) (*SourceParams, error) {
 			Token: p,
 		}
 	default:
-		err = errors.New(fmt.Sprintf("Unsupported source type %s", p))
+		err = fmt.Errorf("Unsupported source type %s", p)
 	}
 	return sp, err
 }
@@ -71,12 +77,29 @@ type Displayer interface {
 	Display() string
 }
 
-// PaymentSourceType consts represent valid payment sources
+// PaymentSourceType consts represent valid payment sources.
 type PaymentSourceType string
 
 const (
+	// PaymentSourceBankAccount is a constant representing a payment source
+	// which is a bank account.
+	PaymentSourceBankAccount PaymentSourceType = "bank_account"
+
+	// PaymentSourceBitcoinReceiver is a constant representing a payment source
+	// which is a Bitcoin receiver.
 	PaymentSourceBitcoinReceiver PaymentSourceType = "bitcoin_receiver"
-	PaymentSourceCard            PaymentSourceType = "card"
+
+	// PaymentSourceObject is a constant representing a payment source which
+	// is a top level source object (/v1/sources).
+	PaymentSourceObject PaymentSourceType = "source"
+
+	// PaymentSourceCard is a constant representing a payment source which is a
+	// card.
+	PaymentSourceCard PaymentSourceType = "card"
+
+	// PaymentSourceAccount is a constant representing a payment source which is
+	// an account.
+	PaymentSourceAccount PaymentSourceType = "account"
 )
 
 // PaymentSource describes the payment source used to make a Charge.
@@ -85,8 +108,11 @@ const (
 type PaymentSource struct {
 	Type            PaymentSourceType `json:"object"`
 	ID              string            `json:"id"`
-	Card            *Card             `json:"-"`
+	BankAccount     *BankAccount      `json:"-"`
 	BitcoinReceiver *BitcoinReceiver  `json:"-"`
+	Card            *Card             `json:"-"`
+	SourceObject    *Source           `json:"-"`
+	Deleted         bool              `json:"deleted"`
 }
 
 // SourceList is a list object for cards.
@@ -95,8 +121,8 @@ type SourceList struct {
 	Values []*PaymentSource `json:"data"`
 }
 
-// PaymentSourceListParams are used to enumerate the payment sources
-// that are attached to a Customer.
+// SourceListParams are used to enumerate the payment sources that are attached
+// to a Customer.
 type SourceListParams struct {
 	ListParams
 	Customer string
@@ -105,10 +131,14 @@ type SourceListParams struct {
 // Display human readable representation of source.
 func (s *PaymentSource) Display() string {
 	switch s.Type {
+	case PaymentSourceBankAccount:
+		return s.BankAccount.Display()
 	case PaymentSourceBitcoinReceiver:
 		return s.BitcoinReceiver.Display()
 	case PaymentSourceCard:
 		return s.Card.Display()
+	case PaymentSourceObject:
+		return s.SourceObject.Display()
 	}
 
 	return ""
@@ -125,10 +155,14 @@ func (s *PaymentSource) UnmarshalJSON(data []byte) error {
 		*s = PaymentSource(ss)
 
 		switch s.Type {
+		case PaymentSourceBankAccount:
+			json.Unmarshal(data, &s.BankAccount)
 		case PaymentSourceBitcoinReceiver:
 			json.Unmarshal(data, &s.BitcoinReceiver)
 		case PaymentSourceCard:
 			json.Unmarshal(data, &s.Card)
+		case PaymentSourceObject:
+			json.Unmarshal(data, &s.SourceObject)
 		}
 	} else {
 		// the id is surrounded by "\" characters, so strip them
@@ -154,14 +188,27 @@ func (s *PaymentSource) MarshalJSON() ([]byte, error) {
 			BitcoinReceiver: s.BitcoinReceiver,
 		}
 	case PaymentSourceCard:
+		var customerID *string
+		if s.Card.Customer != nil {
+			customerID = &s.Card.Customer.ID
+		}
+
 		target = struct {
 			Type     PaymentSourceType `json:"object"`
-			Customer string            `json:"customer"`
+			Customer *string           `json:"customer"`
 			*Card
 		}{
 			Type:     s.Type,
-			Customer: s.Card.Customer.ID,
+			Customer: customerID,
 			Card:     s.Card,
+		}
+	case PaymentSourceAccount:
+		target = struct {
+			Type PaymentSourceType `json:"object"`
+			ID   string            `json:"id"`
+		}{
+			Type: s.Type,
+			ID:   s.ID,
 		}
 	case "":
 		target = s.ID

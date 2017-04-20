@@ -2,7 +2,6 @@
 package recipient
 
 import (
-	"net/url"
 	"strconv"
 
 	stripe "github.com/getbread/stripe-go"
@@ -19,50 +18,8 @@ type Client struct {
 	Key string
 }
 
-// New POSTs a new recipient.
-// For more details see https://stripe.com/docs/api#create_recipient.
-func New(params *stripe.RecipientParams) (*stripe.Recipient, error) {
-	return getC().New(params)
-}
-
-func (c Client) New(params *stripe.RecipientParams) (*stripe.Recipient, error) {
-	body := &url.Values{
-		"name": {params.Name},
-		"type": {string(params.Type)},
-	}
-
-	if params.Bank != nil {
-		if len(params.Bank.Token) > 0 {
-			body.Add("bank_account", params.Bank.Token)
-		} else {
-			params.Bank.AppendDetails(body)
-		}
-	}
-
-	if len(params.Token) > 0 {
-		body.Add("card", params.Token)
-	} else if params.Card != nil {
-		params.Card.AppendDetails(body, true)
-	}
-
-	if len(params.TaxID) > 0 {
-		body.Add("tax_id", params.TaxID)
-	}
-
-	if len(params.Email) > 0 {
-		body.Add("email", params.Email)
-	}
-
-	if len(params.Desc) > 0 {
-		body.Add("description", params.Desc)
-	}
-	params.AppendTo(body)
-
-	recipient := &stripe.Recipient{}
-	err := c.B.Call("POST", "/recipients", c.Key, body, &params.Params, recipient)
-
-	return recipient, err
-}
+// Since API version 2017-04-06, new recipients can't be created anymore.
+// For that reason, there isn't a New() method for the Recipient resource.
 
 // Get returns the details of a recipient.
 // For more details see https://stripe.com/docs/api#retrieve_recipient.
@@ -71,12 +28,12 @@ func Get(id string, params *stripe.RecipientParams) (*stripe.Recipient, error) {
 }
 
 func (c Client) Get(id string, params *stripe.RecipientParams) (*stripe.Recipient, error) {
-	var body *url.Values
+	var body *stripe.RequestValues
 	var commonParams *stripe.Params
 
 	if params != nil {
 		commonParams = &params.Params
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 		params.AppendTo(body)
 	}
 
@@ -93,19 +50,23 @@ func Update(id string, params *stripe.RecipientParams) (*stripe.Recipient, error
 }
 
 func (c Client) Update(id string, params *stripe.RecipientParams) (*stripe.Recipient, error) {
-	var body *url.Values
+	var body *stripe.RequestValues
 	var commonParams *stripe.Params
 
 	if params != nil {
 		commonParams = &params.Params
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 
 		if len(params.Name) > 0 {
 			body.Add("name", params.Name)
 		}
 
 		if params.Bank != nil {
-			params.Bank.AppendDetails(body)
+			if len(params.Bank.Token) > 0 {
+				body.Add("bank_account", params.Bank.Token)
+			} else {
+				params.Bank.AppendDetails(body)
+			}
 		}
 
 		if len(params.Token) > 0 {
@@ -141,12 +102,15 @@ func (c Client) Update(id string, params *stripe.RecipientParams) (*stripe.Recip
 
 // Del removes a recipient.
 // For more details see https://stripe.com/docs/api#delete_recipient.
-func Del(id string) error {
+func Del(id string) (*stripe.Recipient, error) {
 	return getC().Del(id)
 }
 
-func (c Client) Del(id string) error {
-	return c.B.Call("DELETE", "/recipients/"+id, c.Key, nil, nil, nil)
+func (c Client) Del(id string) (*stripe.Recipient, error) {
+	recipient := &stripe.Recipient{}
+	err := c.B.Call("DELETE", "/recipients/"+id, c.Key, nil, nil, recipient)
+
+	return recipient, err
 }
 
 // List returns a list of recipients.
@@ -156,16 +120,12 @@ func List(params *stripe.RecipientListParams) *Iter {
 }
 
 func (c Client) List(params *stripe.RecipientListParams) *Iter {
-	type recipientList struct {
-		stripe.ListMeta
-		Values []*stripe.Recipient `json:"data"`
-	}
-
-	var body *url.Values
+	var body *stripe.RequestValues
 	var lp *stripe.ListParams
+	var p *stripe.Params
 
 	if params != nil {
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 
 		if params.Verified {
 			body.Add("verified", strconv.FormatBool(true))
@@ -173,11 +133,12 @@ func (c Client) List(params *stripe.RecipientListParams) *Iter {
 
 		params.AppendTo(body)
 		lp = &params.ListParams
+		p = params.ToParams()
 	}
 
-	return &Iter{stripe.GetIter(lp, body, func(b url.Values) ([]interface{}, stripe.ListMeta, error) {
-		list := &recipientList{}
-		err := c.B.Call("GET", "/recipients", c.Key, &b, nil, list)
+	return &Iter{stripe.GetIter(lp, body, func(b *stripe.RequestValues) ([]interface{}, stripe.ListMeta, error) {
+		list := &stripe.RecipientList{}
+		err := c.B.Call("GET", "/recipients", c.Key, b, p, list)
 
 		ret := make([]interface{}, len(list.Values))
 		for i, v := range list.Values {

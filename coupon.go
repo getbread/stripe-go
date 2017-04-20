@@ -39,6 +39,13 @@ type Coupon struct {
 	RedeemBy       int64             `json:"redeem_by"`
 	Redeemed       uint64            `json:"times_redeemed"`
 	Valid          bool              `json:"valid"`
+	Deleted        bool              `json:"deleted"`
+}
+
+// CouponList is a list of coupons as retrieved from a list endpoint.
+type CouponList struct {
+	ListMeta
+	Values []*Coupon `json:"data"`
 }
 
 // UnmarshalJSON handles deserialization of a Coupon.

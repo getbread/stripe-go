@@ -2,7 +2,7 @@ package stripe
 
 import (
 	"encoding/json"
-	"net/url"
+	"fmt"
 )
 
 // BankAccountStatus is the list of allowed values for the bank account's status.
@@ -12,26 +12,52 @@ type BankAccountStatus string
 // BankAccountParams is the set of parameters that can be used when creating or updating a bank account.
 type BankAccountParams struct {
 	Params
-	AccountID, Token, Country, Routing, Account, Currency string
-	Default                                               bool
+
+	// The identifier of the parent account under which bank accounts are
+	// nested.
+	AccountID string
+
+	// A token referencing an external account like one returned from
+	// Stripe.js.
+	Token string
+
+	// Information on an external account to reference. Only used if `Token`
+	// is not provided.
+	Account, AccountHolderName, AccountHolderType, Country, Currency, Routing string
+
+	Default  bool
+	Customer string
 }
 
 // BankAccountListParams is the set of parameters that can be used when listing bank accounts.
 type BankAccountListParams struct {
 	ListParams
+
+	// The identifier of the parent account under which the bank accounts are
+	// nested. Either AccountID or Customer should be populated.
 	AccountID string
+
+	// The identifier of the parent customer under which the bank accounts are
+	// nested. Either AccountID or Customer should be populated.
+	Customer string
 }
 
 // BankAccount represents a Stripe bank account.
 type BankAccount struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"bank_name"`
-	Country     string            `json:"country"`
-	Currency    Currency          `json:"currency"`
-	LastFour    string            `json:"last4"`
-	Fingerprint string            `json:"fingerprint"`
-	Status      BankAccountStatus `json:"status"`
-	Routing     string            `json:"routing_number"`
+	ID                string            `json:"id"`
+	Name              string            `json:"bank_name"`
+	AccountHolderName string            `json:"account_holder_name"`
+	AccountHolderType string            `json:"account_holder_type"`
+	Country           string            `json:"country"`
+	Currency          Currency          `json:"currency"`
+	Default           bool              `json:"default_for_currency"`
+	LastFour          string            `json:"last4"`
+	Fingerprint       string            `json:"fingerprint"`
+	Status            BankAccountStatus `json:"status"`
+	Routing           string            `json:"routing_number"`
+	Deleted           bool              `json:"deleted"`
+	Customer          *Customer         `json:"customer"`
+	Meta              map[string]string `json:"metadata"`
 }
 
 // BankAccountList is a list object for bank accounts.
@@ -40,11 +66,24 @@ type BankAccountList struct {
 	Values []*BankAccount `json:"data"`
 }
 
+// Display implements Displayer.Display.
+func (b *BankAccount) Display() string {
+	return fmt.Sprintf("Bank account ending in %s", b.LastFour)
+}
+
 // AppendDetails adds the bank account's details to the query string values.
-func (b *BankAccountParams) AppendDetails(values *url.Values) {
+func (b *BankAccountParams) AppendDetails(values *RequestValues) {
 	values.Add("bank_account[country]", b.Country)
-	values.Add("bank_account[routing_number]", b.Routing)
+	if len(b.Routing) > 0 {
+		values.Add("bank_account[routing_number]", b.Routing)
+	}
 	values.Add("bank_account[account_number]", b.Account)
+	if b.AccountHolderName != "" {
+		values.Add("bank_account[account_holder_name]", b.AccountHolderName)
+	}
+	if b.AccountHolderType != "" {
+		values.Add("bank_account[account_holder_type]", b.AccountHolderType)
+	}
 
 	if len(b.Currency) > 0 {
 		values.Add("bank_account[currency]", b.Currency)

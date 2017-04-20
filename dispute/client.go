@@ -3,7 +3,6 @@ package dispute
 
 import (
 	"fmt"
-	"net/url"
 
 	stripe "github.com/getbread/stripe-go"
 )
@@ -34,19 +33,86 @@ type Client struct {
 	Key string
 }
 
-// Update updates a charge's dispute.
+// Get returns the details of a dispute.
+// For more details see https://stripe.com/docs/api#retrieve_dispute.
+func Get(id string, params *stripe.DisputeParams) (*stripe.Dispute, error) {
+	return getC().Get(id, params)
+}
+
+func (c Client) Get(id string, params *stripe.DisputeParams) (*stripe.Dispute, error) {
+	var body *stripe.RequestValues
+	var commonParams *stripe.Params
+
+	if params != nil {
+		commonParams = &params.Params
+		body = &stripe.RequestValues{}
+		params.AppendTo(body)
+	}
+
+	dispute := &stripe.Dispute{}
+	err := c.B.Call("GET", "/disputes/"+id, c.Key, body, commonParams, dispute)
+
+	return dispute, err
+}
+
+// List returns a list of disputes.
+// For more details see https://stripe.com/docs/api#list_disputes.
+func List(params *stripe.DisputeListParams) *Iter {
+	return getC().List(params)
+}
+
+func (c Client) List(params *stripe.DisputeListParams) *Iter {
+	var body *stripe.RequestValues
+	var lp *stripe.ListParams
+	var p *stripe.Params
+
+	if params != nil {
+		body = &stripe.RequestValues{}
+
+		params.AppendTo(body)
+		lp = &params.ListParams
+		p = params.ToParams()
+	}
+
+	return &Iter{stripe.GetIter(lp, body, func(b *stripe.RequestValues) ([]interface{}, stripe.ListMeta, error) {
+		list := &stripe.DisputeList{}
+		err := c.B.Call("GET", "/disputes", c.Key, b, p, list)
+
+		ret := make([]interface{}, len(list.Values))
+		for i, v := range list.Values {
+			ret[i] = v
+		}
+
+		return ret, list.ListMeta, err
+	})}
+}
+
+// Iter is an iterator for lists of Disputes.
+// The embedded Iter carries methods with it;
+// see its documentation for details.
+type Iter struct {
+	*stripe.Iter
+}
+
+// Dispute returns the most recent Dispute
+// visited by a call to Next.
+func (i *Iter) Dispute() *stripe.Dispute {
+	return i.Current().(*stripe.Dispute)
+}
+
+// Update updates a dispute.
 // For more details see https://stripe.com/docs/api#update_dispute.
 func Update(id string, params *stripe.DisputeParams) (*stripe.Dispute, error) {
 	return getC().Update(id, params)
 }
 
 func (c Client) Update(id string, params *stripe.DisputeParams) (*stripe.Dispute, error) {
-	var body *url.Values
+	var body *stripe.RequestValues
 	var commonParams *stripe.Params
 
 	if params != nil {
 		commonParams = &params.Params
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 
 		if params.Evidence != nil {
 			params.Evidence.AppendDetails(body)
@@ -55,7 +121,7 @@ func (c Client) Update(id string, params *stripe.DisputeParams) (*stripe.Dispute
 	}
 
 	dispute := &stripe.Dispute{}
-	err := c.B.Call("POST", fmt.Sprintf("/charges/%v/dispute", id), c.Key, body, commonParams, dispute)
+	err := c.B.Call("POST", fmt.Sprintf("/disputes/%v", id), c.Key, body, commonParams, dispute)
 
 	return dispute, err
 }
@@ -68,7 +134,7 @@ func Close(id string) (*stripe.Dispute, error) {
 
 func (c Client) Close(id string) (*stripe.Dispute, error) {
 	dispute := &stripe.Dispute{}
-	err := c.B.Call("POST", fmt.Sprintf("/charges/%v/dispute/close", id), c.Key, nil, nil, dispute)
+	err := c.B.Call("POST", fmt.Sprintf("/disputes/%v/close", id), c.Key, nil, nil, dispute)
 
 	return dispute, err
 }

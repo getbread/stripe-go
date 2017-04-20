@@ -20,14 +20,6 @@ func TestBalanceGet(t *testing.T) {
 		t.Error(err)
 	}
 
-	if target.Available == nil || len(target.Available) != 1 {
-		t.Errorf("Available array is not set\n")
-	}
-
-	if target.Pending == nil || len(target.Pending) != 1 {
-		t.Errorf("Pending array is not set\n")
-	}
-
 	if len(target.Available[0].Currency) == 0 {
 		t.Errorf("Available currency is not set\n")
 	}
@@ -109,7 +101,7 @@ func TestBalanceGetTx(t *testing.T) {
 		t.Errorf("Type %v does not match expected value\n", target.Type)
 	}
 
-	if target.Src != res.ID {
+	if target.Src.ID != res.ID {
 		t.Errorf("Source %q does not match expeted value %q\n", target.Src, res.ID)
 	}
 }

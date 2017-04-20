@@ -10,6 +10,7 @@ type TokenParams struct {
 	Params
 	Card     *CardParams
 	Bank     *BankAccountParams
+	PII      *PIIParams
 	Customer string
 	// Email is an undocumented parameter used by Stripe Checkout
 	// It may be removed from the API without notice.
@@ -30,4 +31,15 @@ type Token struct {
 	// Email is an undocumented field but included for all tokens created
 	// with Stripe Checkout.
 	Email string `json:"email"`
+}
+
+// PIIParams are parameters for personal identifiable information (PII).
+type PIIParams struct {
+	Params
+	PersonalIDNumber string
+}
+
+// AppendDetails adds the PII data's details to the query string values.
+func (p *PIIParams) AppendDetails(values *RequestValues) {
+	values.Add("pii[personal_id_number]", p.PersonalIDNumber)
 }

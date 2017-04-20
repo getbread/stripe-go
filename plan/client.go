@@ -28,13 +28,12 @@ func New(params *stripe.PlanParams) (*stripe.Plan, error) {
 }
 
 func (c Client) New(params *stripe.PlanParams) (*stripe.Plan, error) {
-	body := &url.Values{
-		"id":       {params.ID},
-		"name":     {params.Name},
-		"amount":   {strconv.FormatUint(params.Amount, 10)},
-		"currency": {string(params.Currency)},
-		"interval": {string(params.Interval)},
-	}
+	body := &stripe.RequestValues{}
+	body.Add("id", params.ID)
+	body.Add("name", params.Name)
+	body.Add("amount", strconv.FormatUint(params.Amount, 10))
+	body.Add("currency", string(params.Currency))
+	body.Add("interval", string(params.Interval))
 
 	if params.IntervalCount > 0 {
 		body.Add("interval_count", strconv.FormatUint(params.IntervalCount, 10))
@@ -62,17 +61,17 @@ func Get(id string, params *stripe.PlanParams) (*stripe.Plan, error) {
 }
 
 func (c Client) Get(id string, params *stripe.PlanParams) (*stripe.Plan, error) {
-	var body *url.Values
+	var body *stripe.RequestValues
 	var commonParams *stripe.Params
 
 	if params != nil {
 		commonParams = &params.Params
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 		params.AppendTo(body)
 	}
 
 	plan := &stripe.Plan{}
-	err := c.B.Call("GET", "/plans/"+id, c.Key, body, commonParams, plan)
+	err := c.B.Call("GET", "/plans/"+url.QueryEscape(id), c.Key, body, commonParams, plan)
 
 	return plan, err
 }
@@ -84,12 +83,12 @@ func Update(id string, params *stripe.PlanParams) (*stripe.Plan, error) {
 }
 
 func (c Client) Update(id string, params *stripe.PlanParams) (*stripe.Plan, error) {
-	var body *url.Values
+	var body *stripe.RequestValues
 	var commonParams *stripe.Params
 
 	if params != nil {
 		commonParams = &params.Params
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 
 		if len(params.Name) > 0 {
 			body.Add("name", params.Name)
@@ -103,19 +102,22 @@ func (c Client) Update(id string, params *stripe.PlanParams) (*stripe.Plan, erro
 	}
 
 	plan := &stripe.Plan{}
-	err := c.B.Call("POST", "/plans/"+id, c.Key, body, commonParams, plan)
+	err := c.B.Call("POST", "/plans/"+url.QueryEscape(id), c.Key, body, commonParams, plan)
 
 	return plan, err
 }
 
 // Del removes a plan.
 // For more details see https://stripe.com/docs/api#delete_plan.
-func Del(id string) error {
+func Del(id string) (*stripe.Plan, error) {
 	return getC().Del(id)
 }
 
-func (c Client) Del(id string) error {
-	return c.B.Call("DELETE", "/plans/"+id, c.Key, nil, nil, nil)
+func (c Client) Del(id string) (*stripe.Plan, error) {
+	plan := &stripe.Plan{}
+	err := c.B.Call("DELETE", "/plans/"+url.QueryEscape(id), c.Key, nil, nil, plan)
+
+	return plan, err
 }
 
 // List returns a list of plans.
@@ -125,24 +127,21 @@ func List(params *stripe.PlanListParams) *Iter {
 }
 
 func (c Client) List(params *stripe.PlanListParams) *Iter {
-	type planList struct {
-		stripe.ListMeta
-		Values []*stripe.Plan `json:"data"`
-	}
-
-	var body *url.Values
+	var body *stripe.RequestValues
 	var lp *stripe.ListParams
+	var p *stripe.Params
 
 	if params != nil {
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 
 		params.AppendTo(body)
 		lp = &params.ListParams
+		p = params.ToParams()
 	}
 
-	return &Iter{stripe.GetIter(lp, body, func(b url.Values) ([]interface{}, stripe.ListMeta, error) {
-		list := &planList{}
-		err := c.B.Call("GET", "/plans", c.Key, &b, nil, list)
+	return &Iter{stripe.GetIter(lp, body, func(b *stripe.RequestValues) ([]interface{}, stripe.ListMeta, error) {
+		list := &stripe.PlanList{}
+		err := c.B.Call("GET", "/plans", c.Key, b, p, list)
 
 		ret := make([]interface{}, len(list.Values))
 		for i, v := range list.Values {

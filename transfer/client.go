@@ -2,32 +2,16 @@
 package transfer
 
 import (
-	"fmt"
-	"net/url"
 	"strconv"
 
 	stripe "github.com/getbread/stripe-go"
 )
 
 const (
-	Paid     stripe.TransferStatus = "paid"
-	Pending  stripe.TransferStatus = "pending"
-	Failed   stripe.TransferStatus = "failed"
-	Canceled stripe.TransferStatus = "canceled"
-
-	Card stripe.TransferType = "card"
-	Bank stripe.TransferType = "bank_account"
-
-	InsufficientFunds    stripe.TransferFailCode = "insufficient_funds"
-	AccountClosed        stripe.TransferFailCode = "account_closed"
-	NoAccount            stripe.TransferFailCode = "no_account"
-	InvalidAccountNumber stripe.TransferFailCode = "invalid_account_number"
-	DebitNotAuth         stripe.TransferFailCode = "debit_not_authorized"
-	BankOwnerChanged     stripe.TransferFailCode = "bank_ownership_changed"
-	AccountFrozen        stripe.TransferFailCode = "account_frozen"
-	CouldNotProcess      stripe.TransferFailCode = "could_not_process"
-	BankAccountRestrict  stripe.TransferFailCode = "bank_account_restricted"
-	InvalidCurrency      stripe.TransferFailCode = "invalid_currency"
+	SourceAlipay  stripe.TransferSourceType = "alipay_account"
+	SourceBank    stripe.TransferSourceType = "bank_account"
+	SourceBitcoin stripe.TransferSourceType = "bitcoin_receiver"
+	SourceCard    stripe.TransferSourceType = "card"
 )
 
 // Client is used to invoke /transfers APIs.
@@ -43,39 +27,24 @@ func New(params *stripe.TransferParams) (*stripe.Transfer, error) {
 }
 
 func (c Client) New(params *stripe.TransferParams) (*stripe.Transfer, error) {
-	body := &url.Values{
-		"amount":   {strconv.FormatInt(params.Amount, 10)},
-		"currency": {string(params.Currency)},
-	}
-
-	if len(params.Recipient) > 0 {
-		body.Add("recipient", params.Recipient)
-	}
-
-	if len(params.Bank) > 0 {
-		body.Add("bank_account", params.Bank)
-	} else if len(params.Card) > 0 {
-		body.Add("card", params.Card)
-	}
-
-	if len(params.Desc) > 0 {
-		body.Add("description", params.Desc)
-	}
-
-	if len(params.Statement) > 0 {
-		body.Add("statement_descriptor", params.Statement)
-	}
+	body := &stripe.RequestValues{}
+	body.Add("amount", strconv.FormatInt(params.Amount, 10))
+	body.Add("currency", string(params.Currency))
 
 	if len(params.Dest) > 0 {
 		body.Add("destination", params.Dest)
+	}
+
+	if len(params.TransferGroup) > 0 {
+		body.Add("transfer_group", params.TransferGroup)
 	}
 
 	if len(params.SourceTx) > 0 {
 		body.Add("source_transaction", params.SourceTx)
 	}
 
-	if params.Fee > 0 {
-		body.Add("application_fee", strconv.FormatUint(params.Fee, 10))
+	if len(params.SourceType) > 0 {
+		body.Add("source_type", string(params.SourceType))
 	}
 	params.AppendTo(body)
 
@@ -92,12 +61,12 @@ func Get(id string, params *stripe.TransferParams) (*stripe.Transfer, error) {
 }
 
 func (c Client) Get(id string, params *stripe.TransferParams) (*stripe.Transfer, error) {
-	var body *url.Values
+	var body *stripe.RequestValues
 	var commonParams *stripe.Params
 
 	if params != nil {
 		commonParams = &params.Params
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 		params.AppendTo(body)
 	}
 
@@ -114,46 +83,19 @@ func Update(id string, params *stripe.TransferParams) (*stripe.Transfer, error) 
 }
 
 func (c Client) Update(id string, params *stripe.TransferParams) (*stripe.Transfer, error) {
-	var body *url.Values
+	var body *stripe.RequestValues
 	var commonParams *stripe.Params
 
 	if params != nil {
 		commonParams = &params.Params
 
-		body = &url.Values{}
-
-		if len(params.Desc) > 0 {
-			body.Add("description", params.Desc)
-		}
+		body = &stripe.RequestValues{}
 
 		params.AppendTo(body)
 	}
 
 	transfer := &stripe.Transfer{}
 	err := c.B.Call("POST", "/transfers/"+id, c.Key, body, commonParams, transfer)
-
-	return transfer, err
-}
-
-// Cancel cancels a pending transfer.
-// For more details see https://stripe.com/docs/api#cancel_transfer.
-func Cancel(id string, params *stripe.TransferParams) (*stripe.Transfer, error) {
-	return getC().Cancel(id, params)
-}
-
-func (c Client) Cancel(id string, params *stripe.TransferParams) (*stripe.Transfer, error) {
-	var body *url.Values
-	var commonParams *stripe.Params
-
-	if params != nil {
-		commonParams = &params.Params
-
-		body = &url.Values{}
-		params.AppendTo(body)
-	}
-
-	transfer := &stripe.Transfer{}
-	err := c.B.Call("POST", fmt.Sprintf("/transfers/%v/cancel", id), c.Key, body, commonParams, transfer)
 
 	return transfer, err
 }
@@ -165,40 +107,37 @@ func List(params *stripe.TransferListParams) *Iter {
 }
 
 func (c Client) List(params *stripe.TransferListParams) *Iter {
-	type transferList struct {
-		stripe.ListMeta
-		Values []*stripe.Transfer `json:"data"`
-	}
-
-	var body *url.Values
+	var body *stripe.RequestValues
 	var lp *stripe.ListParams
+	var p *stripe.Params
 
 	if params != nil {
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 
 		if params.Created > 0 {
 			body.Add("created", strconv.FormatInt(params.Created, 10))
 		}
 
-		if params.Date > 0 {
-			body.Add("date", strconv.FormatInt(params.Date, 10))
+		if params.Currency != "" {
+			body.Add("currency", string(params.Currency))
 		}
 
-		if len(params.Recipient) > 0 {
-			body.Add("recipient", params.Recipient)
+		if len(params.Dest) > 0 {
+			body.Add("destination", params.Dest)
 		}
 
-		if len(params.Status) > 0 {
-			body.Add("status", string(params.Status))
+		if len(params.TransferGroup) > 0 {
+			body.Add("status", params.TransferGroup)
 		}
 
 		params.AppendTo(body)
 		lp = &params.ListParams
+		p = params.ToParams()
 	}
 
-	return &Iter{stripe.GetIter(lp, body, func(b url.Values) ([]interface{}, stripe.ListMeta, error) {
-		list := &transferList{}
-		err := c.B.Call("GET", "/transfers", c.Key, &b, nil, list)
+	return &Iter{stripe.GetIter(lp, body, func(b *stripe.RequestValues) ([]interface{}, stripe.ListMeta, error) {
+		list := &stripe.TransferList{}
+		err := c.B.Call("GET", "/transfers", c.Key, b, p, list)
 
 		ret := make([]interface{}, len(list.Values))
 		for i, v := range list.Values {

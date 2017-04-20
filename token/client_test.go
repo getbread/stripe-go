@@ -3,9 +3,10 @@ package token
 import (
 	"testing"
 
-	stripe "github.com/getbread/stripe-go"
-	"github.com/getbread/stripe-go/bankaccount"
-	. "github.com/getbread/stripe-go/utils"
+	stripe "github.com/stripe/stripe-go"
+	"github.com/stripe/stripe-go/bankaccount"
+	"github.com/stripe/stripe-go/currency"
+	. "github.com/stripe/stripe-go/utils"
 )
 
 func init() {
@@ -42,6 +43,25 @@ func TestTokenNew(t *testing.T) {
 	if target.Card.LastFour != "4242" {
 		t.Errorf("Unexpected last four %q for card number %v\n", target.Card.LastFour, tokenParams.Card.Number)
 	}
+
+	tokenParamsCurrency := &stripe.TokenParams{
+		Card: &stripe.CardParams{
+			Number:   "4242424242424242",
+			Month:    "10",
+			Year:     "20",
+			Currency: "usd",
+		},
+	}
+
+	tokenWithCurrency, err := New(tokenParamsCurrency)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if tokenWithCurrency.Card.Currency != currency.USD {
+		t.Errorf("Currency %v does not match expected value %v\n", tokenWithCurrency.Card.Currency, currency.USD)
+	}
 }
 
 func TestTokenGet(t *testing.T) {
@@ -71,5 +91,27 @@ func TestTokenGet(t *testing.T) {
 
 	if target.Bank.Status != bankaccount.NewAccount {
 		t.Errorf("Bank account status %q does not match expected value\n", target.Bank.Status)
+	}
+}
+
+func TestPIITokenNew(t *testing.T) {
+	tokenParams := &stripe.TokenParams{
+		PII: &stripe.PIIParams{
+			PersonalIDNumber: "000000000",
+		},
+	}
+
+	target, err := New(tokenParams)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if target.Created == 0 {
+		t.Errorf("Created date is not set\n")
+	}
+
+	if target.Type != PII {
+		t.Errorf("Type %v does not match expected value\n", target.Type)
 	}
 }

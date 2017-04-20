@@ -3,18 +3,18 @@ package transfer
 import (
 	"testing"
 
-	stripe "github.com/getbread/stripe-go"
-	"github.com/getbread/stripe-go/charge"
-	"github.com/getbread/stripe-go/currency"
-	"github.com/getbread/stripe-go/recipient"
-	. "github.com/getbread/stripe-go/utils"
+	stripe "github.com/stripe/stripe-go"
+	"github.com/stripe/stripe-go/account"
+	"github.com/stripe/stripe-go/charge"
+	"github.com/stripe/stripe-go/currency"
+	. "github.com/stripe/stripe-go/utils"
 )
 
 func init() {
 	stripe.Key = GetTestKey()
 }
 
-func TestTransferNew(t *testing.T) {
+func TestTransferAllMethods(t *testing.T) {
 	chargeParams := &stripe.ChargeParams{
 		Amount:   1000,
 		Currency: currency.USD,
@@ -27,26 +27,34 @@ func TestTransferNew(t *testing.T) {
 		},
 	}
 
-	charge.New(chargeParams)
+	charge, err := charge.New(chargeParams)
+	if err != nil {
+		t.Error(err)
+	}
 
-	recipientParams := &stripe.RecipientParams{
-		Name: "Recipient Name",
-		Type: recipient.Individual,
-		Bank: &stripe.BankAccountParams{
-			Country: "US",
-			Routing: "110000000",
-			Account: "000123456789",
+	params := &stripe.AccountParams{
+		Managed: true,
+		Country: "US",
+		LegalEntity: &stripe.LegalEntity{
+			Type: stripe.Individual,
+			DOB: stripe.DOB{
+				Day:   1,
+				Month: 2,
+				Year:  1990,
+			},
 		},
 	}
 
-	rec, _ := recipient.New(recipientParams)
+	acc, err := account.New(params)
+	if err != nil {
+		t.Error(err)
+	}
 
 	transferParams := &stripe.TransferParams{
-		Amount:    100,
-		Currency:  currency.USD,
-		Recipient: rec.ID,
-		Desc:      "Transfer Desc",
-		Statement: "Transfer",
+		Amount:   100,
+		Currency: currency.USD,
+		Dest:     acc.ID,
+		SourceTx: charge.ID,
 	}
 
 	target, err := New(transferParams)
@@ -67,182 +75,39 @@ func TestTransferNew(t *testing.T) {
 		t.Errorf("Created date is not set\n")
 	}
 
-	if target.Date == 0 {
-		t.Errorf("Date is not set \n")
-	}
-
-	if target.Desc != transferParams.Desc {
-		t.Errorf("Description %q does not match expected description %q\n", target.Desc, transferParams.Desc)
-	}
-
-	if target.Recipient.ID != transferParams.Recipient {
-		t.Errorf("Recipient %q does not match expected recipient %q\n", target.Recipient.ID, transferParams.Recipient)
-	}
-
-	if target.Statement != transferParams.Statement {
-		t.Errorf("Statement %q does not match expected statement %q\n", target.Statement, transferParams.Statement)
-	}
-
-	if target.Bank == nil {
-		t.Errorf("Bank account is not set\n")
-	}
-
-	if target.Status != Pending {
-		t.Errorf("Unexpected status %q\n", target.Status)
-	}
-
-	if target.Type != Bank {
-		t.Errorf("Unexpected type %q\n", target.Type)
-	}
-
-	recipient.Del(rec.ID)
-}
-
-func TestTransferGet(t *testing.T) {
-	chargeParams := &stripe.ChargeParams{
-		Amount:   1000,
-		Currency: currency.USD,
-		Source: &stripe.SourceParams{
-			Card: &stripe.CardParams{
-				Number: "4000000000000077",
-				Month:  "06",
-				Year:   "20",
-			},
-		},
-	}
-
-	charge.New(chargeParams)
-
-	recipientParams := &stripe.RecipientParams{
-		Name: "Recipient Name",
-		Type: recipient.Individual,
-		Card: &stripe.CardParams{
-			Name:   "Test Debit",
-			Number: "4000056655665556",
-			Month:  "10",
-			Year:   "20",
-		},
-	}
-
-	rec, _ := recipient.New(recipientParams)
-
-	transferParams := &stripe.TransferParams{
-		Amount:    100,
-		Currency:  currency.USD,
-		Recipient: rec.ID,
-	}
-
-	trans, _ := New(transferParams)
-
-	target, err := Get(trans.ID, nil)
-
+	transferRetrieved, err := Get(target.ID, nil)
 	if err != nil {
 		t.Error(err)
 	}
 
-	if target.Card == nil {
-		t.Errorf("Card is not set\n")
+	if transferRetrieved.ID != target.ID {
+		t.Errorf("ID %q does not match expected ID %q\n", transferRetrieved.ID, target.ID)
 	}
 
-	if target.Type != Card {
-		t.Errorf("Unexpected type %q\n", target.Type)
-	}
+	updateParams := &stripe.TransferParams{}
+	updateParams.AddMeta("foo", "bar")
 
-	recipient.Del(rec.ID)
-}
-
-func TestTransferUpdate(t *testing.T) {
-	chargeParams := &stripe.ChargeParams{
-		Amount:   1000,
-		Currency: currency.USD,
-		Source: &stripe.SourceParams{
-			Card: &stripe.CardParams{
-				Number: "4000000000000077",
-				Month:  "06",
-				Year:   "20",
-			},
-		},
-	}
-
-	charge.New(chargeParams)
-
-	recipientParams := &stripe.RecipientParams{
-		Name: "Recipient Name",
-		Type: recipient.Corp,
-		Bank: &stripe.BankAccountParams{
-			Country: "US",
-			Routing: "110000000",
-			Account: "000123456789",
-		},
-	}
-
-	rec, _ := recipient.New(recipientParams)
-
-	transferParams := &stripe.TransferParams{
-		Amount:    100,
-		Currency:  currency.USD,
-		Recipient: rec.ID,
-		Desc:      "Original",
-	}
-
-	trans, _ := New(transferParams)
-
-	updated := &stripe.TransferParams{
-		Desc: "Updated",
-	}
-
-	target, err := Update(trans.ID, updated)
-
+	transferUpdated, err := Update(target.ID, updateParams)
 	if err != nil {
 		t.Error(err)
 	}
 
-	if target.Desc != updated.Desc {
-		t.Errorf("Description %q does not match expected description %q\n", target.Desc, updated.Desc)
+	if transferUpdated.Meta["foo"] != "bar" {
+		t.Error("Transfer metadata not updated")
 	}
 
-	recipient.Del(rec.ID)
-}
-
-func TestTransferList(t *testing.T) {
-	chargeParams := &stripe.ChargeParams{
-		Amount:   1000,
+	multipleTransferParams := &stripe.TransferParams{
+		Amount:   100,
 		Currency: currency.USD,
-		Source: &stripe.SourceParams{
-			Card: &stripe.CardParams{
-				Number: "4000000000000077",
-				Month:  "06",
-				Year:   "20",
-			},
-		},
+		Dest:     acc.ID,
 	}
 
-	charge.New(chargeParams)
-
-	recipientParams := &stripe.RecipientParams{
-		Name: "Recipient Name",
-		Type: recipient.Individual,
-		Card: &stripe.CardParams{
-			Name:   "Test Debit",
-			Number: "4000056655665556",
-			Month:  "10",
-			Year:   "20",
-		},
+	for i := 0; i < 3; i++ {
+		New(multipleTransferParams)
 	}
 
-	rec, _ := recipient.New(recipientParams)
-
-	transferParams := &stripe.TransferParams{
-		Amount:    100,
-		Currency:  currency.USD,
-		Recipient: rec.ID,
-	}
-
-	for i := 0; i < 5; i++ {
-		New(transferParams)
-	}
-
-	i := List(&stripe.TransferListParams{Recipient: rec.ID})
+	nbTransfers := 0
+	i := List(&stripe.TransferListParams{Dest: acc.ID})
 	for i.Next() {
 		if i.Transfer() == nil {
 			t.Error("No nil values expected")
@@ -251,10 +116,14 @@ func TestTransferList(t *testing.T) {
 		if i.Meta() == nil {
 			t.Error("No metadata returned")
 		}
+		nbTransfers++
 	}
 	if err := i.Err(); err != nil {
 		t.Error(err)
 	}
+	if nbTransfers != 4 {
+		t.Errorf("Expected 4 transfers on %q but got %q\n", acc.ID, nbTransfers)
+	}
 
-	recipient.Del(rec.ID)
+	account.Del(acc.ID)
 }

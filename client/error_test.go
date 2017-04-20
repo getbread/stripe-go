@@ -1,6 +1,7 @@
 package client
 
 import (
+	"strings"
 	"testing"
 
 	. "github.com/getbread/stripe-go"
@@ -22,6 +23,10 @@ func TestErrors(t *testing.T) {
 
 	if stripeErr.Type != InvalidRequest {
 		t.Errorf("Type %v does not match expected type\n", stripeErr.Type)
+	}
+
+	if !strings.HasPrefix(stripeErr.RequestID, "req_") {
+		t.Errorf("Request ID %q does not start with 'req_'\n", stripeErr.RequestID)
 	}
 
 	if stripeErr.HTTPStatusCode != 401 {

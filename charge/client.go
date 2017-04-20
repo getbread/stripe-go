@@ -4,7 +4,6 @@ package charge
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"strconv"
 
 	stripe "github.com/getbread/stripe-go"
@@ -28,10 +27,9 @@ func New(params *stripe.ChargeParams) (*stripe.Charge, error) {
 }
 
 func (c Client) New(params *stripe.ChargeParams) (*stripe.Charge, error) {
-	body := &url.Values{
-		"amount":   {strconv.FormatUint(params.Amount, 10)},
-		"currency": {string(params.Currency)},
-	}
+	body := &stripe.RequestValues{}
+	body.Add("amount", strconv.FormatUint(params.Amount, 10))
+	body.Add("currency", string(params.Currency))
 
 	if params.Source == nil && len(params.Customer) == 0 {
 		err := errors.New("Invalid charge params: either customer or a source must be set")
@@ -58,8 +56,29 @@ func (c Client) New(params *stripe.ChargeParams) (*stripe.Charge, error) {
 		body.Add("receipt_email", params.Email)
 	}
 
+	if len(params.Dest) > 0 &&
+		params.Destination != nil &&
+		params.Destination.Account != params.Dest {
+		err := errors.New("Dest and Destination.Account are both set and not the same")
+		return nil, err
+	}
+
 	if len(params.Dest) > 0 {
-		body.Add("destination", params.Dest)
+		body.Add("destination[account]", params.Dest)
+	}
+
+	if params.Destination != nil {
+		if len(params.Destination.Account) > 0 {
+			body.Add("destination[account]", params.Destination.Account)
+		}
+
+		if params.Destination.Amount > 0 {
+			body.Add("destination[amount]", strconv.FormatUint(params.Destination.Amount, 10))
+		}
+	}
+
+	if params.TransferGroup != "" {
+		body.Add("transfer_group", params.TransferGroup)
 	}
 
 	body.Add("capture", strconv.FormatBool(!params.NoCapture))
@@ -67,6 +86,10 @@ func (c Client) New(params *stripe.ChargeParams) (*stripe.Charge, error) {
 	token := c.Key
 	if params.Fee > 0 {
 		body.Add("application_fee", strconv.FormatUint(params.Fee, 10))
+	}
+
+	if params.Shipping != nil {
+		params.Shipping.AppendDetails(body)
 	}
 
 	params.AppendTo(body)
@@ -84,12 +107,12 @@ func Get(id string, params *stripe.ChargeParams) (*stripe.Charge, error) {
 }
 
 func (c Client) Get(id string, params *stripe.ChargeParams) (*stripe.Charge, error) {
-	var body *url.Values
+	var body *stripe.RequestValues
 	var commonParams *stripe.Params
 
 	if params != nil {
 		commonParams = &params.Params
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 		params.AppendTo(body)
 	}
 
@@ -106,12 +129,12 @@ func Update(id string, params *stripe.ChargeParams) (*stripe.Charge, error) {
 }
 
 func (c Client) Update(id string, params *stripe.ChargeParams) (*stripe.Charge, error) {
-	var body *url.Values
+	var body *stripe.RequestValues
 	var commonParams *stripe.Params
 
 	if params != nil {
 		commonParams = &params.Params
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 
 		if len(params.Desc) > 0 {
 			body.Add("description", params.Desc)
@@ -137,13 +160,13 @@ func Capture(id string, params *stripe.CaptureParams) (*stripe.Charge, error) {
 }
 
 func (c Client) Capture(id string, params *stripe.CaptureParams) (*stripe.Charge, error) {
-	var body *url.Values
+	var body *stripe.RequestValues
 	token := c.Key
 	var commonParams *stripe.Params
 
 	if params != nil {
 		commonParams = &params.Params
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 
 		if params.Amount > 0 {
 			body.Add("amount", strconv.FormatUint(params.Amount, 10))
@@ -151,6 +174,10 @@ func (c Client) Capture(id string, params *stripe.CaptureParams) (*stripe.Charge
 
 		if len(params.Email) > 0 {
 			body.Add("receipt_email", params.Email)
+		}
+
+		if len(params.Statement) > 0 {
+			body.Add("statement_descriptor", params.Statement)
 		}
 
 		if params.Fee > 0 {
@@ -174,16 +201,12 @@ func List(params *stripe.ChargeListParams) *Iter {
 }
 
 func (c Client) List(params *stripe.ChargeListParams) *Iter {
-	type chargeList struct {
-		stripe.ListMeta
-		Values []*stripe.Charge `json:"data"`
-	}
-
-	var body *url.Values
+	var body *stripe.RequestValues
 	var lp *stripe.ListParams
+	var p *stripe.Params
 
 	if params != nil {
-		body = &url.Values{}
+		body = &stripe.RequestValues{}
 
 		if params.Created > 0 {
 			body.Add("created", strconv.FormatInt(params.Created, 10))
@@ -193,13 +216,18 @@ func (c Client) List(params *stripe.ChargeListParams) *Iter {
 			body.Add("customer", params.Customer)
 		}
 
+		if len(params.TransferGroup) > 0 {
+			body.Add("transfer_group", params.TransferGroup)
+		}
+
 		params.AppendTo(body)
 		lp = &params.ListParams
+		p = params.ToParams()
 	}
 
-	return &Iter{stripe.GetIter(lp, body, func(b url.Values) ([]interface{}, stripe.ListMeta, error) {
-		list := &chargeList{}
-		err := c.B.Call("GET", "/charges", c.Key, &b, nil, list)
+	return &Iter{stripe.GetIter(lp, body, func(b *stripe.RequestValues) ([]interface{}, stripe.ListMeta, error) {
+		list := &stripe.ChargeList{}
+		err := c.B.Call("GET", "/charges", c.Key, b, p, list)
 
 		ret := make([]interface{}, len(list.Values))
 		for i, v := range list.Values {
@@ -230,6 +258,45 @@ func (c Client) MarkSafe(id string) (*stripe.Charge, error) {
 	return c.Update(
 		id,
 		&stripe.ChargeParams{Fraud: ReportSafe})
+}
+
+// Update updates a charge's dispute.
+// For more details see https://stripe.com/docs/api#update_dispute.
+func UpdateDispute(id string, params *stripe.DisputeParams) (*stripe.Dispute, error) {
+	return getC().UpdateDispute(id, params)
+}
+
+func (c Client) UpdateDispute(id string, params *stripe.DisputeParams) (*stripe.Dispute, error) {
+	var body *stripe.RequestValues
+	var commonParams *stripe.Params
+
+	if params != nil {
+		commonParams = &params.Params
+		body = &stripe.RequestValues{}
+
+		if params.Evidence != nil {
+			params.Evidence.AppendDetails(body)
+		}
+		params.AppendTo(body)
+	}
+
+	dispute := &stripe.Dispute{}
+	err := c.B.Call("POST", fmt.Sprintf("/charges/%v/dispute", id), c.Key, body, commonParams, dispute)
+
+	return dispute, err
+}
+
+// Close dismisses a charge's dispute in the customer's favor.
+// For more details see https://stripe.com/docs/api#close_dispute.
+func CloseDispute(id string) (*stripe.Dispute, error) {
+	return getC().CloseDispute(id)
+}
+
+func (c Client) CloseDispute(id string) (*stripe.Dispute, error) {
+	dispute := &stripe.Dispute{}
+	err := c.B.Call("POST", fmt.Sprintf("/charges/%v/dispute/close", id), c.Key, nil, nil, dispute)
+
+	return dispute, err
 }
 
 // Iter is an iterator for lists of Charges.

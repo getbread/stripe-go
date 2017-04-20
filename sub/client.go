@@ -3,7 +3,6 @@ package sub
 
 import (
 	"fmt"
-	"net/url"
 	"strconv"
 
 	stripe "github.com/getbread/stripe-go"
@@ -15,6 +14,7 @@ const (
 	PastDue  stripe.SubStatus = "past_due"
 	Canceled stripe.SubStatus = "canceled"
 	Unpaid   stripe.SubStatus = "unpaid"
+	All      stripe.SubStatus = "all"
 )
 
 // Client is used to invoke /subscriptions APIs.
@@ -30,45 +30,89 @@ func New(params *stripe.SubParams) (*stripe.Sub, error) {
 }
 
 func (c Client) New(params *stripe.SubParams) (*stripe.Sub, error) {
-	body := &url.Values{
-		"plan": {params.Plan},
-	}
-
-	if len(params.Token) > 0 {
-		body.Add("card", params.Token)
-	} else if params.Card != nil {
-		params.Card.AppendDetails(body, true)
-	}
-
-	if len(params.Coupon) > 0 {
-		body.Add("coupon", params.Coupon)
-	}
-
-	if params.TrialEndNow {
-		body.Add("trial_end", "now")
-	} else if params.TrialEnd > 0 {
-		body.Add("trial_end", strconv.FormatInt(params.TrialEnd, 10))
-	}
-
-	if params.Quantity > 0 {
-		body.Add("quantity", strconv.FormatUint(params.Quantity, 10))
-	} else if params.QuantityZero {
-		body.Add("quantity", "0")
-	}
-
+	var body *stripe.RequestValues
+	var commonParams *stripe.Params
 	token := c.Key
-	if params.FeePercent > 0 {
-		body.Add("application_fee_percent", strconv.FormatFloat(params.FeePercent, 'f', 2, 64))
-	}
 
-	if params.TaxPercent > 0 {
-		body.Add("tax_percent", strconv.FormatFloat(params.TaxPercent, 'f', 2, 64))
-	}
+	if params != nil {
+		body = &stripe.RequestValues{}
+		body.Add("customer", params.Customer)
 
-	params.AppendTo(body)
+		if len(params.Items) > 0 {
+			for i, item := range params.Items {
+				key := fmt.Sprintf("items[%d]", i)
+				if len(item.Plan) > 0 {
+					body.Add(key+"[plan]", item.Plan)
+				}
+				if item.Quantity > 0 {
+					body.Add(key+"[quantity]", strconv.FormatUint(item.Quantity, 10))
+				} else if item.QuantityZero {
+					body.Add(key+"[quantity]", "0")
+				}
+			}
+		}
+
+		if len(params.Plan) > 0 {
+			body.Add("plan", params.Plan)
+		}
+
+		if len(params.Billing) > 0 {
+			body.Add("billing", string(params.Billing))
+		}
+
+		if params.DaysUntilDue > 0 {
+			body.Add("days_until_due", strconv.FormatUint(params.DaysUntilDue, 10))
+		}
+
+		if len(params.Token) > 0 {
+			body.Add("card", params.Token)
+		} else if params.Card != nil {
+			params.Card.AppendDetails(body, true)
+		}
+
+		if len(params.Coupon) > 0 {
+			body.Add("coupon", params.Coupon)
+		}
+
+		if params.TrialPeriod > 0 {
+			body.Add("trial_period_days", strconv.FormatInt(params.TrialPeriod, 10))
+		}
+
+		if params.TrialEndNow {
+			body.Add("trial_end", "now")
+		} else if params.TrialEnd > 0 {
+			body.Add("trial_end", strconv.FormatInt(params.TrialEnd, 10))
+		}
+
+		if params.TaxPercent > 0 {
+			body.Add("tax_percent", strconv.FormatFloat(params.TaxPercent, 'f', 4, 64))
+		} else if params.TaxPercentZero {
+			body.Add("tax_percent", "0")
+		}
+
+		if params.Quantity > 0 {
+			body.Add("quantity", strconv.FormatUint(params.Quantity, 10))
+		} else if params.QuantityZero {
+			body.Add("quantity", "0")
+		}
+
+		if params.FeePercent > 0 {
+			body.Add("application_fee_percent", strconv.FormatFloat(params.FeePercent, 'f', 2, 64))
+		}
+
+		if params.BillingCycleAnchorNow {
+			body.Add("billing_cycle_anchor", "now")
+		} else if params.BillingCycleAnchor > 0 {
+			body.Add("billing_cycle_anchor", strconv.FormatInt(params.BillingCycleAnchor, 10))
+		}
+
+		commonParams = &params.Params
+
+		params.AppendTo(body)
+	}
 
 	sub := &stripe.Sub{}
-	err := c.B.Call("POST", fmt.Sprintf("/customers/%v/subscriptions", params.Customer), token, body, &params.Params, sub)
+	err := c.B.Call("POST", "/subscriptions", token, body, commonParams, sub)
 
 	return sub, err
 }
@@ -80,15 +124,17 @@ func Get(id string, params *stripe.SubParams) (*stripe.Sub, error) {
 }
 
 func (c Client) Get(id string, params *stripe.SubParams) (*stripe.Sub, error) {
-	if params == nil {
-		return nil, fmt.Errorf("params cannot be nil, and params.Customer must be set")
+	var body *stripe.RequestValues
+	var commonParams *stripe.Params
+
+	if params != nil {
+		body = &stripe.RequestValues{}
+		params.AppendTo(body)
+		commonParams = &params.Params
 	}
 
-	body := &url.Values{}
-	params.AppendTo(body)
-
 	sub := &stripe.Sub{}
-	err := c.B.Call("GET", fmt.Sprintf("/customers/%v/subscriptions/%v", params.Customer, id), c.Key, body, &params.Params, sub)
+	err := c.B.Call("GET", fmt.Sprintf("/subscriptions/%v", id), c.Key, body, commonParams, sub)
 
 	return sub, err
 }
@@ -100,71 +146,123 @@ func Update(id string, params *stripe.SubParams) (*stripe.Sub, error) {
 }
 
 func (c Client) Update(id string, params *stripe.SubParams) (*stripe.Sub, error) {
-	body := &url.Values{}
-
-	if len(params.Plan) > 0 {
-		body.Add("plan", params.Plan)
-	}
-
-	if params.NoProrate {
-		body.Add("prorate", strconv.FormatBool(false))
-	}
-
-	if len(params.Token) > 0 {
-		body.Add("card", params.Token)
-	} else if params.Card != nil {
-		if len(params.Card.Token) > 0 {
-			body.Add("card", params.Card.Token)
-		} else {
-			params.Card.AppendDetails(body, true)
-		}
-	}
-
-	if len(params.Coupon) > 0 {
-		body.Add("coupon", params.Coupon)
-	}
-
-	if params.TrialEnd > 0 {
-		body.Add("trial_end", strconv.FormatInt(params.TrialEnd, 10))
-	}
-
-	if params.Quantity > 0 {
-		body.Add("quantity", strconv.FormatUint(params.Quantity, 10))
-	}
-
+	var body *stripe.RequestValues
+	var commonParams *stripe.Params
 	token := c.Key
-	if params.FeePercent > 0 {
-		body.Add("application_fee_percent", strconv.FormatFloat(params.FeePercent, 'f', 2, 64))
-	}
 
-	if params.TaxPercent > 0 {
-		body.Add("tax_percent", strconv.FormatFloat(params.TaxPercent, 'f', 2, 64))
-	}
+	if params != nil {
+		body = &stripe.RequestValues{}
 
-	params.AppendTo(body)
+		if len(params.Items) > 0 {
+			for i, item := range params.Items {
+				key := fmt.Sprintf("items[%d]", i)
+				if len(item.ID) > 0 {
+					body.Add(key+"[id]", item.ID)
+				}
+				if len(item.Plan) > 0 {
+					body.Add(key+"[plan]", item.Plan)
+				}
+				if item.Quantity > 0 {
+					body.Add(key+"[quantity]", strconv.FormatUint(item.Quantity, 10))
+				} else if item.QuantityZero {
+					body.Add(key+"[quantity]", "0")
+				}
+			}
+		}
+
+		if len(params.Plan) > 0 {
+			body.Add("plan", params.Plan)
+		}
+
+		if params.NoProrate {
+			body.Add("prorate", strconv.FormatBool(false))
+		}
+
+		if len(params.Billing) > 0 {
+			body.Add("billing", string(params.Billing))
+		}
+
+		if params.DaysUntilDue > 0 {
+			body.Add("days_until_due", strconv.FormatUint(params.DaysUntilDue, 10))
+		}
+
+		if len(params.Token) > 0 {
+			body.Add("card", params.Token)
+		} else if params.Card != nil {
+			if len(params.Card.Token) > 0 {
+				body.Add("card", params.Card.Token)
+			} else {
+				params.Card.AppendDetails(body, true)
+			}
+		}
+
+		if len(params.Coupon) > 0 {
+			body.Add("coupon", params.Coupon)
+		} else if params.CouponEmpty {
+			body.Add("coupon", "")
+		}
+
+		if params.TrialEndNow {
+			body.Add("trial_end", "now")
+		} else if params.TrialEnd > 0 {
+			body.Add("trial_end", strconv.FormatInt(params.TrialEnd, 10))
+		}
+
+		if params.Quantity > 0 {
+			body.Add("quantity", strconv.FormatUint(params.Quantity, 10))
+		} else if params.QuantityZero {
+			body.Add("quantity", "0")
+		}
+
+		if params.FeePercent > 0 {
+			body.Add("application_fee_percent", strconv.FormatFloat(params.FeePercent, 'f', 2, 64))
+		}
+
+		if params.TaxPercent > 0 {
+			body.Add("tax_percent", strconv.FormatFloat(params.TaxPercent, 'f', 4, 64))
+		} else if params.TaxPercentZero {
+			body.Add("tax_percent", "0")
+		}
+
+		if params.ProrationDate > 0 {
+			body.Add("proration_date", strconv.FormatInt(params.ProrationDate, 10))
+		}
+
+		commonParams = &params.Params
+		params.AppendTo(body)
+	}
 
 	sub := &stripe.Sub{}
-	err := c.B.Call("POST", fmt.Sprintf("/customers/%v/subscriptions/%v", params.Customer, id), token, body, &params.Params, sub)
+	err := c.B.Call("POST", fmt.Sprintf("/subscriptions/%v", id), token, body, commonParams, sub)
 
 	return sub, err
 }
 
 // Cancel removes a subscription.
 // For more details see https://stripe.com/docs/api#cancel_subscription.
-func Cancel(id string, params *stripe.SubParams) error {
+func Cancel(id string, params *stripe.SubParams) (*stripe.Sub, error) {
 	return getC().Cancel(id, params)
 }
 
-func (c Client) Cancel(id string, params *stripe.SubParams) error {
-	body := &url.Values{}
+func (c Client) Cancel(id string, params *stripe.SubParams) (*stripe.Sub, error) {
+	var body *stripe.RequestValues
+	var commonParams *stripe.Params
 
-	if params.EndCancel {
-		body.Add("at_period_end", strconv.FormatBool(true))
+	if params != nil {
+		body = &stripe.RequestValues{}
+
+		if params.EndCancel {
+			body.Add("at_period_end", strconv.FormatBool(true))
+		}
+
+		params.AppendTo(body)
+		commonParams = &params.Params
 	}
 
-	params.AppendTo(body)
+	sub := &stripe.Sub{}
+	err := c.B.Call("DELETE", fmt.Sprintf("/subscriptions/%v", id), c.Key, body, commonParams, sub)
 
-	return c.B.Call("DELETE", fmt.Sprintf("/customers/%v/subscriptions/%v", params.Customer, id), c.Key, body, &params.Params, nil)
+	return sub, err
 }
 
 // List returns a list of subscriptions.
@@ -174,15 +272,34 @@ func List(params *stripe.SubListParams) *Iter {
 }
 
 func (c Client) List(params *stripe.SubListParams) *Iter {
-	body := &url.Values{}
+	var body *stripe.RequestValues
 	var lp *stripe.ListParams
+	var p *stripe.Params
 
-	params.AppendTo(body)
-	lp = &params.ListParams
+	if params != nil {
+		body = &stripe.RequestValues{}
 
-	return &Iter{stripe.GetIter(lp, body, func(b url.Values) ([]interface{}, stripe.ListMeta, error) {
+		if len(params.Customer) > 0 {
+			body.Add("customer", params.Customer)
+		}
+
+		if len(params.Plan) > 0 {
+			body.Add("plan", params.Plan)
+		}
+
+		if len(params.Status) > 0 {
+			body.Add("status", string(params.Status))
+		}
+
+		params.AppendTo(body)
+
+		lp = &params.ListParams
+		p = params.ToParams()
+	}
+
+	return &Iter{stripe.GetIter(lp, body, func(b *stripe.RequestValues) ([]interface{}, stripe.ListMeta, error) {
 		list := &stripe.SubList{}
-		err := c.B.Call("GET", fmt.Sprintf("/customers/%v/subscriptions", params.Customer), c.Key, &b, nil, list)
+		err := c.B.Call("GET", "/subscriptions", c.Key, b, p, list)
 
 		ret := make([]interface{}, len(list.Values))
 		for i, v := range list.Values {
