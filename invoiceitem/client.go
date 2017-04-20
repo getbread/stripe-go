@@ -4,7 +4,7 @@ package invoiceitem
 import (
 	"strconv"
 
-	stripe "github.com/getbread/stripe-go"
+	stripe "github.com/stripe/stripe-go"
 )
 
 // Client is used to invoke /invoiceitems APIs.

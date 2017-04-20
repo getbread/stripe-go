@@ -2,7 +2,7 @@
 package currency
 
 import (
-	stripe "github.com/getbread/stripe-go"
+	stripe "github.com/stripe/stripe-go"
 )
 
 const (

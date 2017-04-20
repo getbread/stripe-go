@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	stripe "github.com/getbread/stripe-go"
+	stripe "github.com/stripe/stripe-go"
 )
 
 const (
