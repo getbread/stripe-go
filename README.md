@@ -30,7 +30,7 @@ changelog](CHANGELOG) and [API changelog][api-changelog].
 ## Installation
 
 ```sh
-go get github.com/getbread/stripe-go
+go get github.com/stripe/stripe-go
 ```
 
 ## Documentation
